@@ -31,6 +31,7 @@ except ImportError:
     from cassandra.util import WeakSet  # NOQA
 
 from cassandra import AuthenticationFailed
+from cassandra import lexis
 from cassandra.connection import ConnectionException, EndPoint, DefaultEndPoint
 from cassandra.policies import HostDistance
 
@@ -452,7 +453,8 @@ class HostConnection(object):
             raise NoConnectionsAvailable()
 
         shard_id = None
-        if not self._session.cluster.shard_aware_options.disable and self.host.sharding_info and routing_key:
+        if not self._session.cluster.shard_aware_options.disable and self.host.sharding_info and \
+                (routing_key or lexis.routing_token(query) is not None):
             t = self._session.cluster.metadata.token_for_key(keyspace or self._keyspace, table, routing_key, query)
 
             if t is not None and self.tablets_routing_v1 and table is not None:

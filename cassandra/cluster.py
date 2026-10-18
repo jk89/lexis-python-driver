@@ -52,6 +52,7 @@ from cassandra.connection import (ConnectionException, ConnectionShutdown,
                                   ContinuousPagingState, SniEndPointFactory, ConnectionBusy)
 from cassandra.cqltypes import UserType
 import cassandra.cqltypes as types
+from cassandra import lexis
 from cassandra.encoder import Encoder
 from cassandra.protocol import (QueryMessage, ResultMessage,
                                 ErrorMessage, ReadTimeoutErrorMessage,
@@ -3186,7 +3187,14 @@ class Session(object):
         prepared_statement = PreparedStatement.from_message(
             response.query_id, response.bind_metadata, response.pk_indexes, self.cluster.metadata, query, prepared_keyspace,
             self._protocol_version, response.column_metadata, response.result_metadata_id)
-        prepared_statement.custom_payload = future.custom_payload
+        payload = future.custom_payload
+        if payload and lexis.ROUTING_PLAN_PAYLOAD in payload:
+            # Lexis prefix routing; not sent back with each execution.
+            payload = dict(payload)
+            prepared_statement.lexis_routing_plan = lexis.RoutingPlan.from_payload(
+                payload.pop(lexis.ROUTING_PLAN_PAYLOAD), self._protocol_version)
+            payload = payload or None
+        prepared_statement.custom_payload = payload
 
         self.cluster.add_prepared(response.query_id, prepared_statement)
 

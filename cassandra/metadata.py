@@ -337,6 +337,14 @@ class Metadata(object):
         if not t:
             return None
         token_class = t.token_class
+        # Lexis: the prepared statement's routing plan gives the token a
+        # prefix or range read starts at (and a complete key's token, with its
+        # partition key directions).
+        start = lexis.routing_token(query)
+        if start is not None and token_class is LexisToken:
+            return LexisToken(start)
+        if key is None:
+            return None
         try:
             if not token_class.needs_key_types:
                 return token_class.from_key(key)
@@ -349,9 +357,9 @@ class Metadata(object):
 
     def _partition_key_types(self, keyspace, table, query):
         ks = self.keyspaces.get(keyspace) if keyspace else None
-        tm = ks.tables.get(table) if ks and table else None
+        tm = (ks.tables.get(table) or ks.views.get(table)) if ks and table else None
         if tm is not None and tm.partition_key:
-            return [c.cql_type for c in tm.partition_key]
+            return [lexis.Descending(c.cql_type) if c.is_reversed else c.cql_type for c in tm.partition_key]
         prepared = getattr(query, 'prepared_statement', None)
         if prepared is not None and prepared.routing_key_indexes and prepared.column_metadata:
             return [prepared.column_metadata[i].type for i in prepared.routing_key_indexes]
@@ -1462,12 +1470,13 @@ class TableMetadata(object):
 
         # properties
         ret += "%s) WITH " % ("\n" if formatted else "")
-        ret += self._property_string(formatted, self.clustering_key, self.options, self.is_compact_storage)
+        ret += self._property_string(formatted, self.clustering_key, self.options, self.is_compact_storage,
+                                     self.partition_key)
 
         return ret
 
     @classmethod
-    def _property_string(cls, formatted, clustering_key, options_map, is_compact_storage=False):
+    def _property_string(cls, formatted, clustering_key, options_map, is_compact_storage=False, partition_key=()):
         properties = []
         if is_compact_storage:
             properties.append("COMPACT STORAGE")
@@ -1482,6 +1491,11 @@ class TableMetadata(object):
 
             cluster_str += "(%s)" % ", ".join(inner)
             properties.append(cluster_str)
+
+        # Lexis: shown only when a partition key column is DESC, as the server does.
+        if partition_key and any(col.is_reversed for col in partition_key):
+            inner = ["%s %s" % (protect_name(col.name), "DESC" if col.is_reversed else "ASC") for col in partition_key]
+            properties.append("PARTITION ORDER BY (%s)" % ", ".join(inner))
 
         properties.extend(cls._make_option_strings(options_map))
 
@@ -3343,7 +3357,8 @@ class MaterializedViewMetadata(object):
             pk += ", %s" % ', '.join(protect_name(col.name) for col in self.clustering_key)
         pk += ")"
 
-        properties = TableMetadataV3._property_string(formatted, self.clustering_key, self.options)
+        properties = TableMetadataV3._property_string(formatted, self.clustering_key, self.options,
+                                                      partition_key=self.partition_key)
 
         ret = ("CREATE MATERIALIZED VIEW %(keyspace)s.%(name)s AS%(sep)s"
                "SELECT %(selected_cols)s%(sep)s"

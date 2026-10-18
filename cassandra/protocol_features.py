@@ -10,6 +10,9 @@ TABLETS_ROUTING_V1 = "TABLETS_ROUTING_V1"
 # Lexis' tablet routing: same as TABLETS_ROUTING_V1, but tablet boundaries are
 # Lexis' byte-string tokens (see cassandra.lexis).
 LEXIS_TABLETS_ROUTING_V1 = "LEXIS_TABLETS_ROUTING_V1"
+# Lexis' prefix routing: PREPARED responses carry a routing plan, from which
+# prefix and range reads are routed (see cassandra.lexis.RoutingPlan).
+LEXIS_PREFIX_ROUTING_V1 = "LEXIS_PREFIX_ROUTING_V1"
 
 class ProtocolFeatures(object):
     rate_limit_error = None
@@ -18,20 +21,24 @@ class ProtocolFeatures(object):
     tablets_routing_v1 = False
     # The extension tablet routing was negotiated with: TABLETS_ROUTING_V1 or LEXIS_TABLETS_ROUTING_V1.
     tablets_routing_extension = None
+    prefix_routing_v1 = False
 
-    def __init__(self, rate_limit_error=None, shard_id=0, sharding_info=None, tablets_routing_extension=None):
+    def __init__(self, rate_limit_error=None, shard_id=0, sharding_info=None, tablets_routing_extension=None,
+                 prefix_routing_v1=False):
         self.rate_limit_error = rate_limit_error
         self.shard_id = shard_id
         self.sharding_info = sharding_info
         self.tablets_routing_extension = tablets_routing_extension
         self.tablets_routing_v1 = tablets_routing_extension is not None
+        self.prefix_routing_v1 = prefix_routing_v1
 
     @staticmethod
     def parse_from_supported(supported):
         rate_limit_error = ProtocolFeatures.maybe_parse_rate_limit_error(supported)
         shard_id, sharding_info = ProtocolFeatures.parse_sharding_info(supported)
         tablets_routing_extension = ProtocolFeatures.parse_tablets_info(supported)
-        return ProtocolFeatures(rate_limit_error, shard_id, sharding_info, tablets_routing_extension)
+        prefix_routing_v1 = LEXIS_PREFIX_ROUTING_V1 in supported
+        return ProtocolFeatures(rate_limit_error, shard_id, sharding_info, tablets_routing_extension, prefix_routing_v1)
 
     @staticmethod
     def maybe_parse_rate_limit_error(supported):
@@ -55,6 +62,8 @@ class ProtocolFeatures(object):
             options[RATE_LIMIT_ERROR_EXTENSION] = ""
         if self.tablets_routing_extension is not None:
             options[self.tablets_routing_extension] = ""
+        if self.prefix_routing_v1:
+            options[LEXIS_PREFIX_ROUTING_V1] = ""
 
     @staticmethod
     def parse_sharding_info(options):

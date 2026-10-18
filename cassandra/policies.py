@@ -29,6 +29,7 @@ WriteType = WT
 
 
 from cassandra import ConsistencyLevel, OperationTimedOut
+from cassandra import lexis
 
 log = logging.getLogger(__name__)
 
@@ -375,7 +376,8 @@ class TokenAwarePolicy(LoadBalancingPolicy):
                 yield host
         else:
             routing_key = query.routing_key
-            if routing_key is None or keyspace is None:
+            # Lexis prefix and range reads have no routing key, but a routing token.
+            if (routing_key is None and lexis.routing_token(query) is None) or keyspace is None:
                 for host in child.make_query_plan(keyspace, query):
                     yield host
             else:

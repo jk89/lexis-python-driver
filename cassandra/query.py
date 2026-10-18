@@ -454,6 +454,7 @@ class PreparedStatement(object):
     routing_key_indexes = None
     _routing_key_index_set = None
     serial_consistency_level = None  # TODO never used?
+    lexis_routing_plan = None  # cassandra.lexis.RoutingPlan, from the PREPARED response
 
     def __init__(self, column_metadata, query_id, routing_key_indexes, query,
                  keyspace, protocol_version, result_metadata, result_metadata_id):
@@ -476,6 +477,13 @@ class PreparedStatement(object):
 
         if pk_indexes:
             routing_key_indexes = pk_indexes
+        elif protocol_version >= 4:
+            # From protocol v4 the server always sends the partition key
+            # indexes; none means the statement does not bind a complete key
+            # by `=` (Lexis routes prefix and range reads by their routing
+            # plan). Matching bind markers to key columns by name would treat
+            # a range bound as a key.
+            routing_key_indexes = None
         else:
             routing_key_indexes = None
 
@@ -654,6 +662,22 @@ class BoundStatement(Statement):
             col_meta = self.prepared_statement.column_metadata[next_index]
             raise ValueError("Cannot bind UNSET_VALUE as a part of the routing key '%s'" % col_meta.name)
         self.values.append(UNSET_VALUE)
+
+    _lexis_routing_token = False
+
+    @property
+    def lexis_routing_token(self):
+        """
+        Lexis: the token (bytes) this statement's partition ranges start at,
+        computed from the prepared statement's routing plan, or None. Prefix
+        and range reads are routed by it.
+        """
+        plan = self.prepared_statement.lexis_routing_plan
+        if plan is None:
+            return None
+        if self._lexis_routing_token is False:
+            self._lexis_routing_token = plan.start_token(self.values)
+        return self._lexis_routing_token
 
     @property
     def routing_key(self):
