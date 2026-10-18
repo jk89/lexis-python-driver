@@ -443,7 +443,7 @@ class HostConnection(object):
 
         log.debug("Finished initializing connection for host %s", self.host)
 
-    def _get_connection_for_routing_key(self, routing_key=None, keyspace=None, table=None):
+    def _get_connection_for_routing_key(self, routing_key=None, keyspace=None, table=None, query=None):
         if self.is_shutdown:
             raise ConnectionException(
                 "Pool for %s is shutdown" % (self.host,), self.host)
@@ -453,10 +453,9 @@ class HostConnection(object):
 
         shard_id = None
         if not self._session.cluster.shard_aware_options.disable and self.host.sharding_info and routing_key:
-            t = self._session.cluster.metadata.token_map.token_class.from_key(routing_key)
-            
-            shard_id = None
-            if self.tablets_routing_v1 and table is not None:
+            t = self._session.cluster.metadata.token_for_key(keyspace or self._keyspace, table, routing_key, query)
+
+            if t is not None and self.tablets_routing_v1 and table is not None:
                 if keyspace is None:
                     keyspace = self._keyspace
 
@@ -468,8 +467,8 @@ class HostConnection(object):
                             shard_id = replica[1]
                             break
 
-            if shard_id is None:
-                shard_id = self.host.sharding_info.shard_id_from_token(t.value)
+            if shard_id is None and t is not None:
+                shard_id = self.host.sharding_info.shard_id_from_token(t.shard_value)
 
         conn = self._connections.get(shard_id)
 
@@ -515,15 +514,15 @@ class HostConnection(object):
             return random.choice(active_connections)
         return random.choice(list(self._connections.values()))
 
-    def borrow_connection(self, timeout, routing_key=None, keyspace=None, table=None):
-        conn = self._get_connection_for_routing_key(routing_key, keyspace, table)
+    def borrow_connection(self, timeout, routing_key=None, keyspace=None, table=None, query=None):
+        conn = self._get_connection_for_routing_key(routing_key, keyspace, table, query)
         start = time.time()
         remaining = timeout
         last_retry = False
         while True:
             if conn.is_closed:
                 # The connection might have been closed in the meantime - if so, try again
-                conn = self._get_connection_for_routing_key(routing_key, keyspace, table)
+                conn = self._get_connection_for_routing_key(routing_key, keyspace, table, query)
             with conn.lock:
                 if (not conn.is_closed or last_retry) and conn.in_flight < conn.max_request_id:
                     # On last retry we ignore connection status, since it is better to return closed connection than

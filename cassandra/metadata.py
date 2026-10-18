@@ -45,6 +45,7 @@ from cassandra.pool import HostDistance
 from cassandra.connection import EndPoint
 from cassandra.compat import Mapping
 from cassandra.tablets import Tablets
+from cassandra import lexis
 
 log = logging.getLogger(__name__)
 
@@ -288,6 +289,8 @@ class Metadata(object):
             token_class = MD5Token
         elif partitioner.endswith('Murmur3Partitioner'):
             token_class = Murmur3Token
+        elif partitioner.endswith('LexisByteOrderedPartitioner'):
+            token_class = LexisToken
         elif partitioner.endswith('ByteOrderedPartitioner'):
             token_class = BytesToken
         else:
@@ -306,18 +309,53 @@ class Metadata(object):
         self.token_map = TokenMap(
             token_class, token_to_host_owner, all_tokens, self)
 
-    def get_replicas(self, keyspace, key):
+    def get_replicas(self, keyspace, key, table=None, query=None):
         """
         Returns a list of :class:`.Host` instances that are replicas for a given
         partition key.
+
+        With Lexis' ``LexisByteOrderedPartitioner`` the token depends on the
+        partition key column types, so `table` is needed (or a bound `query`
+        whose prepared statement carries them); without it no replicas are
+        returned.
         """
         t = self.token_map
         if not t:
             return []
-        try:
-            return t.get_replicas(keyspace, t.token_class.from_key(key))
-        except NoMurmur3:
+        token = self.token_for_key(keyspace, table, key, query)
+        if token is None:
             return []
+        return t.get_replicas(keyspace, token)
+
+    def token_for_key(self, keyspace, table, key, query=None):
+        """
+        The token of a routing key, or None if it cannot be computed (no token
+        map, no murmur3 extension, or unknown partition key types).
+        For internal use only.
+        """
+        t = self.token_map
+        if not t:
+            return None
+        token_class = t.token_class
+        try:
+            if not token_class.needs_key_types:
+                return token_class.from_key(key)
+            types = self._partition_key_types(keyspace, table, query)
+            if types is None:
+                return None
+            return token_class.from_key(key, types)
+        except NoMurmur3:
+            return None
+
+    def _partition_key_types(self, keyspace, table, query):
+        ks = self.keyspaces.get(keyspace) if keyspace else None
+        tm = ks.tables.get(table) if ks and table else None
+        if tm is not None and tm.partition_key:
+            return [c.cql_type for c in tm.partition_key]
+        prepared = getattr(query, 'prepared_statement', None)
+        if prepared is not None and prepared.routing_key_indexes and prepared.column_metadata:
+            return [prepared.column_metadata[i].type for i in prepared.routing_key_indexes]
+        return None
 
     def can_support_partitioner(self):
         if self.partitioner.endswith('Murmur3Partitioner') and murmur3 is None:
@@ -1824,8 +1862,21 @@ class Token(object):
     Abstract class representing a token.
     """
 
+    needs_key_types = False
+    """ Whether :meth:`from_key` needs the partition key column types. """
+
     def __init__(self, token):
         self.value = token
+
+    @property
+    def shard_value(self):
+        """ The integer the shard of this token is computed from. """
+        return self.value
+
+    @property
+    def tablet_value(self):
+        """ The value compared against tablet boundaries. """
+        return self.value
 
     @classmethod
     def hash_fn(cls, key):
@@ -1913,6 +1964,31 @@ class BytesToken(Token):
             token_string = token_string.encode('ascii')
         # The BOP stores a hex string
         return cls(unhexlify(token_string))
+
+
+class LexisToken(BytesToken):
+    """
+    A token for Lexis' ``LexisByteOrderedPartitioner``: the order-preserving
+    encoding of the partition key, compared as unsigned bytes. Computing it
+    needs the partition key column types, so :meth:`from_key` takes them.
+    """
+
+    needs_key_types = True
+
+    @classmethod
+    def from_key(cls, key, types=None):
+        if types is None:
+            raise ValueError("LexisToken needs the partition key column types")
+        return cls(lexis.encode(types, lexis.split_routing_key(key, len(types))))
+
+    @property
+    def shard_value(self):
+        return lexis.projection(self.value)
+
+    @property
+    def tablet_value(self):
+        # Tablet boundaries are tagged tokens: 0x01 followed by the key bytes.
+        return b'\x01' + self.value
 
 
 class TriggerMetadata(object):

@@ -531,7 +531,7 @@ class TokenAwarePolicyTest(unittest.TestCase):
         for host in hosts:
             host.set_up()
 
-        def get_replicas(keyspace, packed_key):
+        def get_replicas(keyspace, packed_key, table=None, query=None):
             index = struct.unpack('>i', packed_key)[0]
             return list(islice(cycle(hosts), index, index + 2))
 
@@ -567,7 +567,7 @@ class TokenAwarePolicyTest(unittest.TestCase):
         for h in hosts[2:]:
             h.set_location_info("dc2", "rack1")
 
-        def get_replicas(keyspace, packed_key):
+        def get_replicas(keyspace, packed_key, table=None, query=None):
             index = struct.unpack('>i', packed_key)[0]
             # return one node from each DC
             if index % 2 == 0:
@@ -715,7 +715,7 @@ class TokenAwarePolicyTest(unittest.TestCase):
         query = Statement(routing_key=routing_key)
         qplan = list(policy.make_query_plan(keyspace, query))
         self.assertEqual(replicas + hosts[:2], qplan)
-        cluster.metadata.get_replicas.assert_called_with(keyspace, routing_key)
+        cluster.metadata.get_replicas.assert_called_with(keyspace, routing_key, table=None, query=query)
 
         # statement keyspace, no working
         cluster.metadata.get_replicas.reset_mock()
@@ -725,7 +725,7 @@ class TokenAwarePolicyTest(unittest.TestCase):
         query = Statement(routing_key=routing_key, keyspace=statement_keyspace)
         qplan = list(policy.make_query_plan(working_keyspace, query))
         self.assertEqual(replicas + hosts[:2], qplan)
-        cluster.metadata.get_replicas.assert_called_with(statement_keyspace, routing_key)
+        cluster.metadata.get_replicas.assert_called_with(statement_keyspace, routing_key, table=None, query=query)
 
         # both keyspaces set, statement keyspace used for routing
         cluster.metadata.get_replicas.reset_mock()
@@ -735,7 +735,7 @@ class TokenAwarePolicyTest(unittest.TestCase):
         query = Statement(routing_key=routing_key, keyspace=statement_keyspace)
         qplan = list(policy.make_query_plan(working_keyspace, query))
         self.assertEqual(replicas + hosts[:2], qplan)
-        cluster.metadata.get_replicas.assert_called_with(statement_keyspace, routing_key)
+        cluster.metadata.get_replicas.assert_called_with(statement_keyspace, routing_key, table=None, query=query)
 
     def test_shuffles_if_given_keyspace_and_routing_key(self):
         """
@@ -1487,7 +1487,7 @@ class HostFilterPolicyQueryPlanTest(unittest.TestCase):
         for host in hosts:
             host.set_up()
 
-        def get_replicas(keyspace, packed_key):
+        def get_replicas(keyspace, packed_key, table=None, query=None):
             return hosts[:2]
 
         cluster.metadata.get_replicas.side_effect = get_replicas

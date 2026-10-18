@@ -46,8 +46,9 @@ class Tablets(object):
         if tablet == []:
             return None
         
-        id = bisect_left(tablet, t.value, key = lambda tablet: tablet.last_token)
-        if id < len(tablet) and t.value > tablet[id].first_token:
+        value = t.tablet_value
+        id = bisect_left(tablet, value, key = lambda tablet: tablet.last_token)
+        if id < len(tablet) and value > tablet[id].first_token:
             return tablet[id]
         return None
 

@@ -410,16 +410,15 @@ def run_setup(extensions):
     }
 
     setup(
-        name='scylla-driver',
+        name='lexis-driver',
         version=__version__,
-        description='Scylla Driver for Apache Cassandra',
+        description='Lexis driver for Apache Cassandra and ScyllaDB',
         long_description=long_description,
         long_description_content_type='text/x-rst',
-        url='https://github.com/scylladb/python-driver',
+        url='https://github.com/jk89/lexis-python-driver',
         project_urls={
-            'Documentation': 'https://scylladb.github.io/python-driver/',
-            'Source': 'https://github.com/scylladb/python-driver/',
-            'Issues': 'https://github.com/scylladb/python-driver/issues',
+            'Source': 'https://github.com/jk89/lexis-python-driver/',
+            'Issues': 'https://github.com/jk89/lexis-python-driver/issues',
         },
         author='ScyllaDB',
         packages=[

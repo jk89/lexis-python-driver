@@ -4653,7 +4653,7 @@ class ResponseFuture(object):
         try:
             # TODO get connectTimeout from cluster settings
             if self.query:
-                connection, request_id = pool.borrow_connection(timeout=2.0, routing_key=self.query.routing_key, keyspace=self.query.keyspace, table=self.query.table)
+                connection, request_id = pool.borrow_connection(timeout=2.0, routing_key=self.query.routing_key, keyspace=self.query.keyspace, table=self.query.table, query=self.query)
             else:
                 connection, request_id = pool.borrow_connection(timeout=2.0)
             self._connection = connection
@@ -4774,10 +4774,17 @@ class ResponseFuture(object):
             self._warnings = getattr(response, 'warnings', None)
             self._custom_payload = getattr(response, 'custom_payload', None)
 
-            if self._custom_payload and self.session.cluster.control_connection._tablets_routing_v1 and 'tablets-routing-v1' in self._custom_payload:
+            tablets_payload = None
+            if self._custom_payload and self.session.cluster.control_connection._tablets_routing_v1:
+                # Lexis tokens are byte strings; tablet boundaries are tagged tokens (see cassandra.lexis).
+                if 'lexis-tablets-routing-v1' in self._custom_payload:
+                    tablets_payload = ('lexis-tablets-routing-v1', 'TupleType(BytesType, BytesType, ListType(TupleType(UUIDType, Int32Type)))')
+                elif 'tablets-routing-v1' in self._custom_payload:
+                    tablets_payload = ('tablets-routing-v1', 'TupleType(LongType, LongType, ListType(TupleType(UUIDType, Int32Type)))')
+            if tablets_payload is not None:
                 protocol = self.session.cluster.protocol_version
-                info = self._custom_payload.get('tablets-routing-v1')
-                ctype = types.lookup_casstype('TupleType(LongType, LongType, ListType(TupleType(UUIDType, Int32Type)))')
+                info = self._custom_payload.get(tablets_payload[0])
+                ctype = types.lookup_casstype(tablets_payload[1])
                 tablet_routing_info = ctype.from_binary(info, protocol)
                 first_token = tablet_routing_info[0]
                 last_token = tablet_routing_info[1]
