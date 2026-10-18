@@ -1,7 +1,13 @@
 lexis-python-driver
 ===================
 
-The Python driver for `Lexis <https://github.com/jk89/lexis>`_, a fork of
+.. image:: https://raw.githubusercontent.com/jk89/lexisdb/develop/lexis-icon.svg
+   :width: 160
+   :height: 196
+   :align: left
+   :alt: Lexis
+
+The Python driver for `Lexis <https://github.com/jk89/lexisdb>`_, a fork of
 ScyllaDB that replaces the Murmur3 partitioner with byte-ordered partitioning,
 built on tablets. In Lexis the token of a partition is an order-preserving
 encoding of its partition key.
